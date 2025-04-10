@@ -16,7 +16,7 @@ import { ref, set, get, remove, push, child, update } from 'firebase/database';
 import { db, realtimeDb } from '@/utils/firebase';
 
 // Determine which database to use - set to 'firestore' or 'realtime'
-const DB_TYPE: 'firestore' | 'realtime' = 'realtime';
+const DB_TYPE: 'firestore' | 'realtime' = 'firestore';
 
 export type Scene = {
   id: string;

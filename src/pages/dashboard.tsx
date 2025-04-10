@@ -36,7 +36,9 @@ export default function Dashboard() {
     setError(null);
     
     try {
-      const response = await fetch('/api/scripts');
+      const response = await fetch('/api/scripts', {
+        credentials: 'include'
+      });
       
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`);
@@ -68,7 +70,9 @@ export default function Dashboard() {
     setError(null);
     
     try {
-      const response = await fetch(`/api/scripts/${scriptId}`);
+      const response = await fetch(`/api/scripts/${scriptId}`, {
+        credentials: 'include'
+      });
       
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`);
@@ -116,6 +120,7 @@ export default function Dashboard() {
           description: '',
           scenes: [],
         }),
+        credentials: 'include'
       });
       
       if (!response.ok) {
@@ -140,8 +145,160 @@ export default function Dashboard() {
 
   // Upload script function
   const uploadScript = async () => {
-    // Implementation for uploading script would go here
-    alert('Upload script functionality coming soon');
+    setError(null);
+    
+    // Check session
+    if (status !== 'authenticated') {
+      setError('You must be signed in to upload a script.');
+      return;
+    }
+    
+    try {
+      // Create a file input element
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.txt,.fountain,.pdf'; // Accept PDF files
+      
+      // Handle file selection
+      fileInput.onchange = async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+        
+        try {
+          setIsLoading(true);
+          
+          // Handle based on file type
+          let content = '';
+          
+          if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+            try {
+              // Placeholder text for PDF files
+              content = `# PDF Script: ${file.name}\n\nThis PDF has been imported as a placeholder. Please copy/paste content from your PDF into this script.`;
+            } catch (pdfError) {
+              console.error('PDF processing error:', pdfError);
+              setError('Could not process the PDF file. Try a plain text format instead.');
+              setIsLoading(false);
+              return;
+            }
+          } else {
+            // Read text files normally
+            content = await readFileContent(file);
+          }
+          
+          // Parse the content into scenes
+          const scenes = parseScriptContent(content);
+          
+          // Create a title from the filename
+          const title = file.name.replace(/\.[^/.]+$/, "");
+          
+          try {
+            // Check if we're still logged in
+            if (!session?.user?.id) {
+              setError("Your session appears to be invalid. Please refresh the page and try again.");
+              setIsLoading(false);
+              return;
+            }
+            
+            // Create the script directly without API
+            const { createScript } = await import('@/services/scriptService');
+            
+            // Create the script via the service directly
+            const newScript = await createScript({
+              title,
+              description: `Uploaded from ${file.name}`,
+              userId: session.user.id,
+              scenes
+            });
+            
+            if (newScript) {
+              await fetchScripts();
+              if (newScript.id) {
+                await loadScript(newScript.id);
+              }
+            }
+          } catch (apiError: any) {
+            console.error('API error:', apiError);
+            setError(apiError.message || 'Failed to create script. Please try again.');
+          }
+        } catch (error: any) {
+          console.error('Failed to process script:', error);
+          setError(error.message || 'Could not process the uploaded script. Please check the file format.');
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      
+      // Trigger file selection dialog
+      fileInput.click();
+    } catch (error: any) {
+      console.error('Failed to upload script:', error);
+      setError('Could not upload the script. Please try again.');
+    }
+  };
+  
+  // Helper function to read file content
+  const readFileContent = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = (event) => {
+        resolve(event.target?.result as string || '');
+      };
+      
+      reader.onerror = () => {
+        reject(new Error('Failed to read file'));
+      };
+      
+      reader.readAsText(file);
+    });
+  };
+  
+  // Helper function to parse script content into scenes
+  const parseScriptContent = (content: string): Scene[] => {
+    // Basic parsing - split by scene headers (starting with INT. or EXT.)
+    const sceneRegex = /\b(INT\.|EXT\.|INT\/EXT\.|I\/E\.)\s.+/g;
+    
+    // Find all scene headers and their positions
+    const scenes: Scene[] = [];
+    const headers: { title: string, index: number }[] = [];
+    
+    let match: RegExpExecArray | null;
+    while ((match = sceneRegex.exec(content)) !== null) {
+      headers.push({ 
+        title: match[0].trim(),
+        index: match.index
+      });
+    }
+    
+    // If no scene headers found, create a single scene
+    if (headers.length === 0) {
+      return [{
+        id: Date.now().toString(),
+        title: 'Scene 1',
+        content: content,
+        characters: []
+      }];
+    }
+    
+    // Create scenes based on scene headers
+    for (let i = 0; i < headers.length; i++) {
+      const currentHeader = headers[i];
+      const nextHeader = headers[i + 1];
+      
+      const startIndex = currentHeader.index;
+      const endIndex = nextHeader ? nextHeader.index : content.length;
+      
+      const sceneContent = content.substring(startIndex, endIndex).trim();
+      
+      scenes.push({
+        id: (Date.now() + i).toString(),
+        title: currentHeader.title,
+        content: sceneContent,
+        characters: []
+      });
+    }
+    
+    return scenes;
   };
 
   // Update scenes in the current script
@@ -160,6 +317,7 @@ export default function Dashboard() {
           ...currentScript,
           scenes: updatedScenes,
         }),
+        credentials: 'include'
       });
       
       if (!response.ok) {
